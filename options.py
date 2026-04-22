@@ -9,16 +9,16 @@ parser.add_argument('--epochs', type=int, default=120, help='maximum number of e
 parser.add_argument('--batch_size', type=int,default=8,help="Batch size to use per GPU")
 parser.add_argument('--lr', type=float, default=2e-4, help='learning rate of encoder.')
 
-parser.add_argument('--de_type', nargs='+', default=['denoise_15', 'denoise_25', 'denoise_50', 'derain', 'dehaze'],
+parser.add_argument('--de_type', nargs='+', default=['lowlight', 'derain', 'dehaze'],
                     help='which type of degradations is training and testing for.')
 
 parser.add_argument('--patch_size', type=int, default=128, help='patchsize of input.')
 parser.add_argument('--num_workers', type=int, default=16, help='number of workers.')
 
 # path
-parser.add_argument('--data_file_dir', type=str, default='data_dir/',  help='where clean images of denoising saves.')
-parser.add_argument('--denoise_dir', type=str, default='data/Train/Denoise/',
-                    help='where clean images of denoising saves.')
+parser.add_argument('--data_file_dir', type=str, default='data_dir/',  help='directory holding per-task filename manifests.')
+parser.add_argument('--lowlight_dir', type=str, default='data/Train/LowLight/',
+                    help='root of low-light training data (expects Low/ and Normal/ subtrees).')
 parser.add_argument('--derain_dir', type=str, default='data/Train/Derain/',
                     help='where training images of deraining saves.')
 parser.add_argument('--dehaze_dir', type=str, default='data/Train/Dehaze/',

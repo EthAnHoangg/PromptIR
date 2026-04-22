@@ -6,24 +6,40 @@ import numpy as np
 
 from torch.utils.data import Dataset
 from torchvision.transforms import ToPILImage, Compose, RandomCrop, ToTensor
-import torch
 
 from utils.image_utils import random_augmentation, crop_img
-from utils.degradation_utils import Degradation
 
-    
+
+LOWLIGHT_DE_ID = 0   # replaces the three denoise codes
+
+
+def _lowlight_gt_path(low_path):
+    """Map a low-light input path to its paired 'Normal' GT path.
+
+    Handles both LOL-v2 conventions:
+      Real_captured:  .../Low/lowNNNNN.png    -> .../Normal/normalNNNNN.png
+      Synthetic:      .../Low/rXXXt.png       -> .../Normal/rXXXt.png   (same basename)
+    """
+    gt = low_path.replace("/Low/", "/Normal/")
+    base = os.path.basename(gt)
+    if base.startswith("low"):
+        base = "normal" + base[3:]
+        gt = os.path.join(os.path.dirname(gt), base)
+    return gt
+
+
 class PromptTrainDataset(Dataset):
     def __init__(self, args):
         super(PromptTrainDataset, self).__init__()
         self.args = args
         self.rs_ids = []
         self.hazy_ids = []
-        self.D = Degradation(args)
+        self.ll_ids = []
         self.de_temp = 0
         self.de_type = self.args.de_type
         print(self.de_type)
 
-        self.de_dict = {'denoise_15': 0, 'denoise_25': 1, 'denoise_50': 2, 'derain': 3, 'dehaze': 4, 'deblur' : 5}
+        self.de_dict = {'lowlight': 0, 'derain': 3, 'dehaze': 4}
 
         self._init_ids()
         self._merge_ids()
@@ -36,8 +52,8 @@ class PromptTrainDataset(Dataset):
         self.toTensor = ToTensor()
 
     def _init_ids(self):
-        if 'denoise_15' in self.de_type or 'denoise_25' in self.de_type or 'denoise_50' in self.de_type:
-            self._init_clean_ids()
+        if 'lowlight' in self.de_type:
+            self._init_lowlight_ids()
         if 'derain' in self.de_type:
             self._init_rs_ids()
         if 'dehaze' in self.de_type:
@@ -45,32 +61,16 @@ class PromptTrainDataset(Dataset):
 
         random.shuffle(self.de_type)
 
-    def _init_clean_ids(self):
-        ref_file = self.args.data_file_dir + "noisy/denoise_airnet.txt"
-        temp_ids = []
-        temp_ids+= [id_.strip() for id_ in open(ref_file)]
-        clean_ids = []
-        name_list = os.listdir(self.args.denoise_dir)
-        clean_ids += [self.args.denoise_dir + id_ for id_ in name_list if id_.strip() in temp_ids]
-
-        if 'denoise_15' in self.de_type:
-            self.s15_ids = [{"clean_id": x,"de_type":0} for x in clean_ids]
-            self.s15_ids = self.s15_ids * 3
-            random.shuffle(self.s15_ids)
-            self.s15_counter = 0
-        if 'denoise_25' in self.de_type:
-            self.s25_ids = [{"clean_id": x,"de_type":1} for x in clean_ids]
-            self.s25_ids = self.s25_ids * 3
-            random.shuffle(self.s25_ids)
-            self.s25_counter = 0
-        if 'denoise_50' in self.de_type:
-            self.s50_ids = [{"clean_id": x,"de_type":2} for x in clean_ids]
-            self.s50_ids = self.s50_ids * 3
-            random.shuffle(self.s50_ids)
-            self.s50_counter = 0
-
-        self.num_clean = len(clean_ids)
-        print("Total Denoise Ids : {}".format(self.num_clean))
+    def _init_lowlight_ids(self):
+        ref_file = self.args.data_file_dir + "lowlight/lowlight_train.txt"
+        temp_ids = [self.args.lowlight_dir + id_.strip() for id_ in open(ref_file)]
+        self.ll_ids = [{"clean_id": x, "de_type": LOWLIGHT_DE_ID} for x in temp_ids]
+        # Replicate so the ~1.6k LOL pairs appear often enough in a mixed epoch alongside
+        # rain (~120x) and haze (~72k). ~50x yields ~80k samples, comparable to the others.
+        self.ll_ids = self.ll_ids * 50
+        random.shuffle(self.ll_ids)
+        self.num_ll = len(self.ll_ids)
+        print("Total LowLight Ids : {}".format(self.num_ll))
 
     def _init_hazy_ids(self):
         temp_ids = []
@@ -119,55 +119,40 @@ class PromptTrainDataset(Dataset):
 
     def _merge_ids(self):
         self.sample_ids = []
-        if "denoise_15" in self.de_type:
-            self.sample_ids += self.s15_ids
-            self.sample_ids += self.s25_ids
-            self.sample_ids += self.s50_ids
+        if "lowlight" in self.de_type:
+            self.sample_ids += self.ll_ids
         if "derain" in self.de_type:
-            self.sample_ids+= self.rs_ids
-        
+            self.sample_ids += self.rs_ids
         if "dehaze" in self.de_type:
-            self.sample_ids+= self.hazy_ids
+            self.sample_ids += self.hazy_ids
         print(len(self.sample_ids))
 
     def __getitem__(self, idx):
         sample = self.sample_ids[idx]
         de_id = sample["de_type"]
 
-        if de_id < 3:
-            if de_id == 0:
-                clean_id = sample["clean_id"]
-            elif de_id == 1:
-                clean_id = sample["clean_id"]
-            elif de_id == 2:
-                clean_id = sample["clean_id"]
-
-            clean_img = crop_img(np.array(Image.open(clean_id).convert('RGB')), base=16)
-            clean_patch = self.crop_transform(clean_img)
-            clean_patch= np.array(clean_patch)
-
-            clean_name = clean_id.split("/")[-1].split('.')[0]
-
-            clean_patch = random_augmentation(clean_patch)[0]
-
-            degrad_patch = self.D.single_degrade(clean_patch, de_id)
+        if de_id == LOWLIGHT_DE_ID:
+            # Low-light Enhancement (paired LOL-v2 data)
+            degrad_img = crop_img(np.array(Image.open(sample["clean_id"]).convert('RGB')), base=16)
+            clean_name = _lowlight_gt_path(sample["clean_id"])
+            clean_img = crop_img(np.array(Image.open(clean_name).convert('RGB')), base=16)
+        elif de_id == 3:
+            # Rain Streak Removal
+            degrad_img = crop_img(np.array(Image.open(sample["clean_id"]).convert('RGB')), base=16)
+            clean_name = self._get_gt_name(sample["clean_id"])
+            clean_img = crop_img(np.array(Image.open(clean_name).convert('RGB')), base=16)
+        elif de_id == 4:
+            # Dehazing with SOTS outdoor training set
+            degrad_img = crop_img(np.array(Image.open(sample["clean_id"]).convert('RGB')), base=16)
+            clean_name = self._get_nonhazy_name(sample["clean_id"])
+            clean_img = crop_img(np.array(Image.open(clean_name).convert('RGB')), base=16)
         else:
-            if de_id == 3:
-                # Rain Streak Removal
-                degrad_img = crop_img(np.array(Image.open(sample["clean_id"]).convert('RGB')), base=16)
-                clean_name = self._get_gt_name(sample["clean_id"])
-                clean_img = crop_img(np.array(Image.open(clean_name).convert('RGB')), base=16)
-            elif de_id == 4:
-                # Dehazing with SOTS outdoor training set
-                degrad_img = crop_img(np.array(Image.open(sample["clean_id"]).convert('RGB')), base=16)
-                clean_name = self._get_nonhazy_name(sample["clean_id"])
-                clean_img = crop_img(np.array(Image.open(clean_name).convert('RGB')), base=16)
+            raise ValueError("Unknown de_type id: {}".format(de_id))
 
-            degrad_patch, clean_patch = random_augmentation(*self._crop_patch(degrad_img, clean_img))
+        degrad_patch, clean_patch = random_augmentation(*self._crop_patch(degrad_img, clean_img))
 
         clean_patch = self.toTensor(clean_patch)
         degrad_patch = self.toTensor(degrad_patch)
-
 
         return [clean_name, de_id], degrad_patch, clean_patch
 
@@ -175,66 +160,36 @@ class PromptTrainDataset(Dataset):
         return len(self.sample_ids)
 
 
-class DenoiseTestDataset(Dataset):
+class LowLightTestDataset(Dataset):
+    """Paired low-light test set (LOL-v2 style). Expects `root/Low/*.png` inputs and
+    paired GT under `root/Normal/`. Handles both Real_captured (lowNNNNN/normalNNNNN)
+    and Synthetic (identical basenames) naming conventions.
+    """
     def __init__(self, args):
-        super(DenoiseTestDataset, self).__init__()
+        super(LowLightTestDataset, self).__init__()
         self.args = args
-        self.clean_ids = []
-        self.sigma = 15
-
-        self._init_clean_ids()
-
+        low_dir = os.path.join(args.lowlight_path, "Low")
+        name_list = sorted([f for f in os.listdir(low_dir)
+                            if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp"))])
+        self.degraded_ids = [os.path.join(low_dir, n) for n in name_list]
+        self.length = len(self.degraded_ids)
         self.toTensor = ToTensor()
 
-    def _init_clean_ids(self):
-        name_list = os.listdir(self.args.denoise_path)
-        self.clean_ids += [self.args.denoise_path + id_ for id_ in name_list]
+    def __getitem__(self, idx):
+        low_path = self.degraded_ids[idx]
+        gt_path = _lowlight_gt_path(low_path)
 
-        self.num_clean = len(self.clean_ids)
+        degraded_img = crop_img(np.array(Image.open(low_path).convert('RGB')), base=16)
+        clean_img = crop_img(np.array(Image.open(gt_path).convert('RGB')), base=16)
 
-    def _add_gaussian_noise(self, clean_patch):
-        noise = np.random.randn(*clean_patch.shape)
-        noisy_patch = np.clip(clean_patch + noise * self.sigma, 0, 255).astype(np.uint8)
-        return noisy_patch, clean_patch
+        clean_img = self.toTensor(clean_img)
+        degraded_img = self.toTensor(degraded_img)
 
-    def set_sigma(self, sigma):
-        self.sigma = sigma
+        name = os.path.splitext(os.path.basename(low_path))[0]
+        return [name], degraded_img, clean_img
 
-    def __getitem__(self, clean_id):
-        clean_img = crop_img(np.array(Image.open(self.clean_ids[clean_id]).convert('RGB')), base=16)
-        clean_name = self.clean_ids[clean_id].split("/")[-1].split('.')[0]
-
-        noisy_img, _ = self._add_gaussian_noise(clean_img)
-        clean_img, noisy_img = self.toTensor(clean_img), self.toTensor(noisy_img)
-
-        return [clean_name], noisy_img, clean_img
-    def tile_degrad(input_,tile=128,tile_overlap =0):
-        sigma_dict = {0:0,1:15,2:25,3:50}
-        b, c, h, w = input_.shape
-        tile = min(tile, h, w)
-        assert tile % 8 == 0, "tile size should be multiple of 8"
-
-        stride = tile - tile_overlap
-        h_idx_list = list(range(0, h-tile, stride)) + [h-tile]
-        w_idx_list = list(range(0, w-tile, stride)) + [w-tile]
-        E = torch.zeros(b, c, h, w).type_as(input_)
-        W = torch.zeros_like(E)
-        s = 0
-        for h_idx in h_idx_list:
-            for w_idx in w_idx_list:
-                in_patch = input_[..., h_idx:h_idx+tile, w_idx:w_idx+tile]
-                out_patch = in_patch
-                # out_patch = model(in_patch)
-                out_patch_mask = torch.ones_like(in_patch)
-
-                E[..., h_idx:(h_idx+tile), w_idx:(w_idx+tile)].add_(out_patch)
-                W[..., h_idx:(h_idx+tile), w_idx:(w_idx+tile)].add_(out_patch_mask)
-        # restored = E.div_(W)
-
-        restored = torch.clamp(restored, 0, 1)
-        return restored
     def __len__(self):
-        return self.num_clean
+        return self.length
 
 
 class DerainDehazeDataset(Dataset):
