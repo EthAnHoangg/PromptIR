@@ -23,6 +23,18 @@ parser.add_argument('--derain_dir', type=str, default='data/Train/Derain/',
                     help='where training images of deraining saves.')
 parser.add_argument('--dehaze_dir', type=str, default='data/Train/Dehaze/',
                     help='where training images of dehazing saves.')
+parser.add_argument('--lowlight_test_path', type=str, default='test/lowlight/',
+                    help='root of low-light validation data; contains Real_captured/ and Synthetic/ subdirs')
+parser.add_argument('--derain_test_path', type=str, default='test/derain/',
+                    help='root of derain validation data; expects Rain100L/{input,target} underneath')
+parser.add_argument('--dehaze_test_path', type=str, default='test/dehaze/',
+                    help='root of dehaze validation data; expects input/ and target/ underneath')
+parser.add_argument('--val_every_n_epochs', type=int, default=1,
+                    help='run validation every N epochs')
+parser.add_argument('--resume', type=str, default=None,
+                    help='checkpoint to resume training from. Use "auto" to pick up '
+                         'train_ckpt/last.ckpt if it exists, or pass an explicit path. '
+                         'Restores optimizer, scheduler, epoch, and global_step.')
 parser.add_argument('--output_path', type=str, default="output/", help='output save path')
 parser.add_argument('--ckpt_path', type=str, default="ckpt/Denoise/", help='checkpoint save path')
 parser.add_argument("--wblogger",type=str,default="promptir",help = "Determine to log to wandb or not and the project name")

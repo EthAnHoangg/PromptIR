@@ -67,7 +67,7 @@ class PromptTrainDataset(Dataset):
         self.ll_ids = [{"clean_id": x, "de_type": LOWLIGHT_DE_ID} for x in temp_ids]
         # Replicate so the ~1.6k LOL pairs appear often enough in a mixed epoch alongside
         # rain (~120x) and haze (~72k). ~50x yields ~80k samples, comparable to the others.
-        self.ll_ids = self.ll_ids * 50
+        self.ll_ids = self.ll_ids
         random.shuffle(self.ll_ids)
         self.num_ll = len(self.ll_ids)
         print("Total LowLight Ids : {}".format(self.num_ll))
