@@ -105,7 +105,7 @@ def main():
                 ))
         if lowlight_subsets:
             ll_set = ConcatDataset(lowlight_subsets) if len(lowlight_subsets) > 1 else lowlight_subsets[0]
-            val_dataloaders.append(DataLoader(ll_set, batch_size=1, num_workers=0,
+            val_dataloaders.append(DataLoader(ll_set, batch_size=4, num_workers=0,
                                               pin_memory=True, shuffle=False))
             val_task_names.append('lowlight')
             print("LowLight val: {} pairs".format(len(ll_set)))
@@ -119,7 +119,7 @@ def main():
             )
             derain_set = DerainDehazeDataset(derain_val_args, task='derain',
                                              addnoise=False, sigma=15)
-            val_dataloaders.append(DataLoader(derain_set, batch_size=1, num_workers=0,
+            val_dataloaders.append(DataLoader(derain_set, batch_size=4, num_workers=0,
                                               pin_memory=True, shuffle=False))
             val_task_names.append('derain')
             print("Derain val: {} pairs".format(len(derain_set)))
@@ -132,7 +132,7 @@ def main():
             )
             dehaze_set = DerainDehazeDataset(dehaze_val_args, task='dehaze',
                                              addnoise=False, sigma=15)
-            val_dataloaders.append(DataLoader(dehaze_set, batch_size=1, num_workers=0,
+            val_dataloaders.append(DataLoader(dehaze_set, batch_size=4, num_workers=0,
                                               pin_memory=True, shuffle=False))
             val_task_names.append('dehaze')
             print("Dehaze val: {} pairs".format(len(dehaze_set)))

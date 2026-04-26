@@ -2,7 +2,7 @@
 import time
 import numpy as np
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
-from skvideo.measure import niqe
+# from skvideo.measure import niqe
 
 
 class AverageMeter():
@@ -61,17 +61,21 @@ def compute_psnr_ssim(recoverd, clean):
         # psnr_val += compare_psnr(clean[i], recoverd[i])
         # ssim += compare_ssim(clean[i], recoverd[i], multichannel=True)
         psnr += peak_signal_noise_ratio(clean[i], recoverd[i], data_range=1)
-        ssim += structural_similarity(clean[i], recoverd[i], data_range=1, multichannel=True)
+        # skimage>=0.19 uses channel_axis; older versions use multichannel.
+        try:
+            ssim += structural_similarity(clean[i], recoverd[i], data_range=1, channel_axis=-1)
+        except TypeError:
+            ssim += structural_similarity(clean[i], recoverd[i], data_range=1, multichannel=True)
 
     return psnr / recoverd.shape[0], ssim / recoverd.shape[0], recoverd.shape[0]
 
 
-def compute_niqe(image):
-    image = np.clip(image.detach().cpu().numpy(), 0, 1)
-    image = image.transpose(0, 2, 3, 1)
-    niqe_val = niqe(image)
+# def compute_niqe(image):
+#     image = np.clip(image.detach().cpu().numpy(), 0, 1)
+#     image = image.transpose(0, 2, 3, 1)
+#     niqe_val = niqe(image)
 
-    return niqe_val.mean()
+#     return niqe_val.mean()
 
 class timer():
     def __init__(self):
