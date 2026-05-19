@@ -90,12 +90,15 @@ def main():
 
     # Task-balanced sampling. Weight each sample inversely to its task's count so
     # every batch is drawn ~uniformly across tasks regardless of raw dataset sizes.
-    # Epoch length = n_tasks * max(per-task count), which keeps total steps in the
-    # same ballpark as the prior `rs_ids * 120` replication scheme and gives every
-    # task ~max(N_task) draws per epoch on average.
+    # Default epoch length = n_tasks * max(per-task count); override via
+    # --samples_per_epoch to shorten an epoch without dropping any training data
+    # (the sampler is stochastic, so each epoch draws a different random subset).
     task_counts = Counter(s["de_type"] for s in trainset.sample_ids)
     sample_weights = [1.0 / task_counts[s["de_type"]] for s in trainset.sample_ids]
-    samples_per_epoch = len(task_counts) * max(task_counts.values())
+    if opt.samples_per_epoch > 0:
+        samples_per_epoch = opt.samples_per_epoch
+    else:
+        samples_per_epoch = len(task_counts) * max(task_counts.values())
     sampler = WeightedRandomSampler(sample_weights, num_samples=samples_per_epoch,
                                     replacement=True)
     print("Train task counts: {}".format(dict(task_counts)))

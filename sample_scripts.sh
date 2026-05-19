@@ -98,3 +98,15 @@ python train.py \
     --batch_size 8 \
     --epochs 120 \
     --de_type lowlight derain dehaze
+
+
+# ---------------------------------------------------------------------------
+# 10. Faster epochs on a slow GPU (e.g. T4). Caps the WeightedRandomSampler
+#     output to 9,000 samples/epoch -> ~1,125 iters/epoch at batch 8, instead
+#     of the default 45,582 samples/epoch -> 5,697 iters. No data is dropped:
+#     each epoch sees a different random subset, and tasks stay balanced.
+# ---------------------------------------------------------------------------
+python train.py \
+    --num_gpus 1 \
+    --batch_size 8 \
+    --samples_per_epoch 9000

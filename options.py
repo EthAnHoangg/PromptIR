@@ -31,6 +31,11 @@ parser.add_argument('--dehaze_test_path', type=str, default='test/dehaze/',
                     help='root of dehaze validation data; expects input/ and target/ underneath')
 parser.add_argument('--val_every_n_epochs', type=int, default=1,
                     help='run validation every N epochs')
+parser.add_argument('--samples_per_epoch', type=int, default=0,
+                    help='number of samples drawn per epoch by the WeightedRandomSampler. '
+                         '0 (default) = n_tasks * max(per-task count). Lower this to shorten '
+                         'each epoch; the sampler still draws task-balanced batches and no '
+                         'training data is dropped (each epoch sees a different random subset).')
 parser.add_argument('--resume', type=str, default=None,
                     help='checkpoint to resume training from. Use "auto" to pick up '
                          'train_ckpt/last.ckpt if it exists, or pass an explicit path. '
