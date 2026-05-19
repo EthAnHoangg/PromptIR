@@ -1,12 +1,13 @@
 import os
 import argparse
 import subprocess
+from collections import Counter
 from tqdm import tqdm
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, ConcatDataset
+from torch.utils.data import DataLoader, ConcatDataset, WeightedRandomSampler
 
 from utils.dataset_utils import PromptTrainDataset, LowLightTestDataset, DerainDehazeDataset
 from utils.val_utils import compute_psnr_ssim
@@ -86,8 +87,22 @@ def main():
         logger = TensorBoardLogger(save_dir = "logs/")
 
     trainset = PromptTrainDataset(opt)
-    trainloader = DataLoader(trainset, batch_size=opt.batch_size, pin_memory=True, shuffle=True,
-                             drop_last=True, num_workers=opt.num_workers)
+
+    # Task-balanced sampling. Weight each sample inversely to its task's count so
+    # every batch is drawn ~uniformly across tasks regardless of raw dataset sizes.
+    # Epoch length = n_tasks * max(per-task count), which keeps total steps in the
+    # same ballpark as the prior `rs_ids * 120` replication scheme and gives every
+    # task ~max(N_task) draws per epoch on average.
+    task_counts = Counter(s["de_type"] for s in trainset.sample_ids)
+    sample_weights = [1.0 / task_counts[s["de_type"]] for s in trainset.sample_ids]
+    samples_per_epoch = len(task_counts) * max(task_counts.values())
+    sampler = WeightedRandomSampler(sample_weights, num_samples=samples_per_epoch,
+                                    replacement=True)
+    print("Train task counts: {}".format(dict(task_counts)))
+    print("Samples per epoch (weighted): {}".format(samples_per_epoch))
+
+    trainloader = DataLoader(trainset, batch_size=opt.batch_size, pin_memory=True,
+                             sampler=sampler, drop_last=True, num_workers=opt.num_workers)
 
     # Build per-task val loaders. A loader is built only if BOTH (a) the task is in
     # --de_type (so the model was actually trained on it) AND (b) the test data is on

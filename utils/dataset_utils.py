@@ -65,9 +65,6 @@ class PromptTrainDataset(Dataset):
         ref_file = self.args.data_file_dir + "lowlight/lowlight_train.txt"
         temp_ids = [self.args.lowlight_dir + id_.strip() for id_ in open(ref_file)]
         self.ll_ids = [{"clean_id": x, "de_type": LOWLIGHT_DE_ID} for x in temp_ids]
-        # Replicate so the ~1.6k LOL pairs appear often enough in a mixed epoch alongside
-        # rain (~120x) and haze (~72k). ~50x yields ~80k samples, comparable to the others.
-        self.ll_ids = self.ll_ids
         random.shuffle(self.ll_ids)
         self.num_ll = len(self.ll_ids)
         print("Total LowLight Ids : {}".format(self.num_ll))
@@ -88,7 +85,6 @@ class PromptTrainDataset(Dataset):
         rs = self.args.data_file_dir + "rainy/rainTrain.txt"
         temp_ids+= [self.args.derain_dir + id_.strip() for id_ in open(rs)]
         self.rs_ids = [{"clean_id":x,"de_type":3} for x in temp_ids]
-        self.rs_ids = self.rs_ids * 120
 
         self.rl_counter = 0
         self.num_rl = len(self.rs_ids)
