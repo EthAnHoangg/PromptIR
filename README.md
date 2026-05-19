@@ -28,36 +28,66 @@ information of corruptions.*
 
 <img src = "mainfig.png"> 
 
+> **Fork note (this repository).** The original PromptIR is trained on three degradations: **Gaussian denoising, deraining, and dehazing**. This fork swaps the Gaussian-denoise task for paired **low-light enhancement** on LOL-v2 (Real_captured + Synthetic), so the task set is `{lowlight, derain, dehaze}`. All training/eval/dataset code reflects that swap. See [`docs/lowlight_migration.md`](docs/lowlight_migration.md) for the full change log.
+
 ## Installation and Data Preparation
 
 See [INSTALL.md](INSTALL.md) for the installation of dependencies and dataset preperation required to run this codebase.
 
 ## Training
 
-After preparing the training data in ```data/``` directory, use 
+After preparing the training data in `data/Train/{LowLight,Derain,Dehaze}/`, start training with:
+
 ```
 python train.py
 ```
-to start the training of the model. Use the ```de_type``` argument to choose the combination of degradation types to train on. By default it is set to all the 3 degradation types (noise, rain, and haze).
 
-Example Usage: If we only want to train on deraining and dehazing:
+By default this trains on all three degradation types (`--de_type lowlight derain dehaze`) for 120 epochs across 4 GPUs (DDP). Use `--de_type` to select a subset:
+
 ```
-python train.py --de_type derain dehaze
+python train.py --de_type derain dehaze        # skip lowlight
+python train.py --de_type lowlight             # lowlight only
+python train.py --num_gpus 1                   # single-GPU run
 ```
+
+### Validation and checkpointing
+
+`train.py` builds per-task validation loaders for each task that is **both** in `--de_type` **and** has test data present under `test/{lowlight,derain,dehaze}/`. Each task contributes `val_psnr_<task>` and `val_ssim_<task>`; their mean is logged as `val_psnr` / `val_ssim` and monitored by `ModelCheckpoint` (`monitor="val_psnr", mode="max", save_top_k=1`). Outputs:
+
+- `train_ckpt/best-{epoch}-{val_psnr}.ckpt` — best epoch by mean val PSNR
+- `train_ckpt/last.ckpt` — most recent epoch (always saved)
+
+If no test data is found, training runs without validation and keeps every per-epoch checkpoint (`save_top_k=-1`). Validation cadence: `--val_every_n_epochs` (default `1`).
+
+### Resuming
+
+```
+python train.py --resume auto                  # picks up train_ckpt/last.ckpt if present
+python train.py --resume path/to/ckpt.ckpt     # explicit checkpoint
+```
+
+`auto` falls back to a fresh start if `last.ckpt` is absent. Resuming restores optimizer, scheduler, epoch, and global_step.
+
+### Logging
+
+Default logger is Weights & Biases under project `promptir`. Pass `--wblogger None` to fall back to TensorBoard under `logs/`.
 
 ## Testing
 
-After preparing the testing data in ```test/``` directory, place the mode checkpoint file in the ```ckpt``` directory. The pretrained model can be downloaded [here](https://drive.google.com/file/d/1j-b5Od70pGF7oaCqKAfUzmf-N-xEAjYl/view?usp=sharingg), alternatively, it is also available under the releases tab. To perform the evalaution use
+Place the checkpoint at `ckpt/<--ckpt_name>` (default `ckpt/model.ckpt`). Pretrained weights from the upstream paper are available [here](https://drive.google.com/file/d/1j-b5Od70pGF7oaCqKAfUzmf-N-xEAjYl/view?usp=sharingg), but note they were trained on Gaussian denoising rather than lowlight — for this fork, use a checkpoint trained with the swapped task set.
+
 ```
 python test.py --mode {n}
 ```
-```n``` is a number that can be used to set the tasks to be evaluated on, 0 for denoising, 1 for deraining, 2 for dehaazing and 3 for all-in-one setting.
 
-Example Usage: To test on all the degradation types at once, run:
+| `--mode` | Task |
+|---|---|
+| `0` | Low-light enhancement (iterates both LOL-v2 `Real_captured` and `Synthetic` subsets, reports per-subset PSNR/SSIM) |
+| `1` | Deraining (Rain100L) |
+| `2` | Dehazing (SOTS) |
+| `3` | All three, in sequence |
 
-```
-python test.py --mode 3
-```
+Restored images are written to `output/<task>/...`.
 
 ## Demo
 To obtain visual results from the model ```demo.py``` can be used. After placing the saved model file in ```ckpt``` directory, run:

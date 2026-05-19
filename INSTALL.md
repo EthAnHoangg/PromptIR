@@ -2,56 +2,80 @@
 
 ### Dependencies Installation
 
-This repository is built in PyTorch 1.8.1 and tested on Ubuntu 18.04 environment (Python3.8, CUDA11.6, cuDNN8.5).
-Follow these intructions
+This repository is built in PyTorch 1.8.1 (Python 3.8, CUDA 11.6, cuDNN 8.5, PyTorch Lightning 2.0.1).
+Follow these instructions:
 
-1. Clone our repository
+1. Clone the repository
 ```
 git clone https://github.com/va1shn9v/PromptIR.git
 cd PromptIR
 ```
 
-2. Create conda environment
-The Conda environment used can be recreated using the env.yml file
+2. Create the conda environment from `env.yml`
 ```
 conda env create -f env.yml
+conda activate promptir
 ```
 
 
-### Dataset Download and Preperation
+### Dataset Download and Preparation
 
-All the 5 datasets used in the paper can be downloaded from the following locations:
+This fork trains and evaluates on three paired restoration tasks: **low-light enhancement, deraining, and dehazing**. The original Gaussian-denoise task has been removed.
 
-Denoising: [BSD400](https://drive.google.com/file/d/1idKFDkAHJGAFDn1OyXZxsTbOSBx9GS8N/view?usp=sharing), [WED](https://drive.google.com/file/d/19_mCE_GXfmE5yYsm-HEzuZQqmwMjPpJr/view?usp=sharing), [Urban100](https://drive.google.com/drive/folders/1B3DJGQKB6eNdwuQIhdskA64qUuVKLZ9u)
+| Task | Dataset | Download |
+|---|---|---|
+| Low-light | LOL-v2 (Real_captured + Synthetic) | [LOL-v2](https://daooshee.github.io/BMVC2018website/) |
+| Deraining | Train100L / Rain100L | [Train100L&Rain100L](https://drive.google.com/drive/folders/1-_Tw-LHJF4vh8fpogKgZx1EQ9MhsJI_f?usp=sharing) |
+| Dehazing | RESIDE OTS (train) / SOTS (test) | [RESIDE](https://sites.google.com/view/reside-dehaze-datasets/reside-v0) |
 
-Deraining: [Train100L&Rain100L](https://drive.google.com/drive/folders/1-_Tw-LHJF4vh8fpogKgZx1EQ9MhsJI_f?usp=sharing)
+#### Training data layout
 
-Dehazing: [RESIDE](https://sites.google.com/view/reside-dehaze-datasets/reside-v0) (OTS)
-
-The training data should be placed in ``` data/Train/{task_name}``` directory where ```task_name``` can be Denoise,Derain or Dehaze.
-After placing the training data the directory structure would be as follows:
-```
-└───Train
-    ├───Dehaze
-    │   ├───original
-    │   └───synthetic
-    ├───Denoise
-    └───Derain
-        ├───gt
-        └───rainy
-```
-
-The testing data should be placed in the ```test``` directory wherein each task has a seperate directory. The test directory after setup:
+Place training images under `data/Train/{LowLight,Derain,Dehaze}/`. The pixel data is **not** checked in — only the filename manifests in `data_dir/` are. The default paths (`--lowlight_dir`, `--derain_dir`, `--dehaze_dir` in `options.py`) expect:
 
 ```
-├───dehaze
-│   ├───input
-│   └───target
-├───denoise
-│   ├───bsd68
-│   └───urban100
-└───derain
-    └───Rain100L
-        ├───input
-        └───target
+data/Train
+├── LowLight
+│   ├── Real_captured
+│   │   ├── Low      # lowNNNNN.png
+│   │   └── Normal   # normalNNNNN.png
+│   └── Synthetic
+│       ├── Low      # rXXXt.png
+│       └── Normal   # rXXXt.png  (same basename as Low)
+├── Derain
+│   ├── rainy        # rain-*.png (listed in data_dir/rainy/rainTrain.txt)
+│   └── gt           # norain-*.png
+└── Dehaze
+    ├── synthetic    # hazy crops (listed in data_dir/hazy/hazy_outside.txt)
+    └── original     # haze-free reference images
 ```
+
+The manifests already shipped under `data_dir/` are the source of truth for which filenames are loaded:
+- `data_dir/lowlight/lowlight_train.txt`
+- `data_dir/rainy/rainTrain.txt`
+- `data_dir/hazy/hazy_outside.txt`
+
+(`data_dir/noisy/denoise.txt` is leftover from the original repo and unused.)
+
+#### Test / validation data layout
+
+Place evaluation images under `test/`. The defaults (`--lowlight_test_path`, `--derain_test_path`, `--dehaze_test_path`) expect:
+
+```
+test
+├── lowlight
+│   ├── Real_captured
+│   │   ├── Low
+│   │   └── Normal
+│   └── Synthetic
+│       ├── Low
+│       └── Normal
+├── derain
+│   └── Rain100L
+│       ├── input
+│       └── target
+└── dehaze
+    ├── input
+    └── target
+```
+
+`test.py --mode 0` iterates over both `Real_captured/` and `Synthetic/` and reports PSNR/SSIM per subset. Mode 1 evaluates `derain/Rain100L`, mode 2 evaluates `dehaze/`, mode 3 runs all three sequentially.
